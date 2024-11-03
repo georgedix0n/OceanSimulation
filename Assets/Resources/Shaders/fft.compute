@@ -1,0 +1,105 @@
+#pragma kernel main
+#define M_PI 3.1415926535897932384626433832795
+
+
+RWTexture2D<float4> precomputedButterflyTexture: register(u0);
+RWTexture2D<float2> inputTexture: register(u1);
+RWTexture2D<float2> outputTexture: register(u2);
+
+
+
+cbuffer Constants : register(b0)
+{
+    int N;
+    int flip;
+    int stage;
+    int direction;
+
+}
+
+float2 complex_multiply(float2 z0, float2 z1)
+{
+    float2 z;
+    z.x = z0.x * z1.x - z0.y *z1.y;
+    z.y = z0.x * z1.y + z0.y *z1.x;
+
+    return z;
+}
+
+float2 complex_add(float2 z0, float2 z1)
+{
+    float2 z;
+    z.x = z0.x +z1.x;
+    z.y = z0.y + z1.y;
+    return z;
+}
+
+void verticalFFT(uint3 DispatchThreadID)
+{
+    float4 butterfly = precomputedButterflyTexture[int2(stage, DispatchThreadID.y)]; 
+    float2 twiddles = butterfly.xy;
+    if(flip == 0)
+    {
+        float2 top = inputTexture[int2(DispatchThreadID.x, butterfly.z)];
+        float2 bottom = inputTexture[int2(DispatchThreadID.x, butterfly.w)];
+        
+
+        outputTexture[DispatchThreadID.xy] = top + complex_multiply(twiddles, bottom);
+
+    }
+    else
+    {
+        float2 top = outputTexture[int2(DispatchThreadID.x, butterfly.z)];
+        float2 bottom = outputTexture[int2(DispatchThreadID.x, butterfly.w)];
+
+
+        inputTexture[DispatchThreadID.xy] = top + complex_multiply(twiddles, bottom);
+    }
+    
+    flip = 1 - flip;
+       
+}
+
+void horizontalFFT(uint3 DispatchThreadID)
+{
+    float4 butterfly = precomputedButterflyTexture[int2(stage, DispatchThreadID.x)]; 
+    float2 twiddles = butterfly.xy;
+    if(flip == 0)
+    {
+        float2 top = inputTexture[int2(butterfly.z, DispatchThreadID.y)];
+        float2 bottom = inputTexture[int2(butterfly.w, DispatchThreadID.y)];
+        
+
+        outputTexture[DispatchThreadID.xy] = top + complex_multiply(twiddles, bottom);
+
+    }
+    else
+    {
+        float2 top = outputTexture[int2(butterfly.z, DispatchThreadID.y)];
+        float2 bottom = outputTexture[int2(butterfly.w, DispatchThreadID.y)];
+
+
+        inputTexture[DispatchThreadID.xy] = top + complex_multiply(twiddles, bottom);
+    }
+    
+    flip = 1 - flip;
+       
+}
+
+
+[numthreads(32, 32, 1)]
+void main(uint3 DispatchThreadID : SV_DispatchThreadID)
+{   
+    
+
+    if(direction == 0)
+    {
+        horizontalFFT(DispatchThreadID);
+    }
+    else if(direction ==1)
+    { 
+        verticalFFT(DispatchThreadID);
+    }
+    
+
+}

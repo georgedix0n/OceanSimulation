@@ -1,0 +1,15 @@
+#pragma kernel main
+
+RWTexture2D<float2> permute_texture: register(u0);
+cbuffer Constants : register(b0)
+{
+    int N;
+
+}
+
+[numthreads(16, 16, 1)]
+void main(uint3 DispatchThreadID : SV_DispatchThreadID)
+{   
+    permute_texture[DispatchThreadID.xy] *= float2((1-2*fmod(DispatchThreadID.x, 2))/(N*N), (1-2*fmod(DispatchThreadID.y, 2))/(N*N));
+
+}

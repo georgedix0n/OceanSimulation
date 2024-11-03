@@ -1,0 +1,90 @@
+#pragma kernel main
+#pragma enable_d3d11_debug_symbols
+#define M_PI 3.1415926535897932384626433832795
+
+
+RWTexture2D<float4> Result: register(u0);
+RWStructuredBuffer<uint> bitReversedIndicies: register(u1);
+
+cbuffer Constants : register(b0)
+{
+    int N;
+
+}
+
+
+uint ReverseBits(uint x, uint numBits)
+{
+    uint reversed = 0;
+    for (uint i = 0; i < numBits; ++i)
+    {
+        reversed <<= 1;
+        reversed |= x & 1;
+        x >>= 1;
+    }
+    return reversed;
+}
+
+
+
+[numthreads(1, 16, 1)]
+void main(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+    bitReversedIndicies[DispatchThreadID.y] = ReverseBits(DispatchThreadID.y, log2(N));//ReverseBits(DispatchThreadID.x, log2(N));
+    
+    //ensures bit reversed indicies are stored prior to butterfly computations
+    GroupMemoryBarrierWithGroupSync();
+    
+
+    
+    float k = fmod(DispatchThreadID.y * (float(N)/pow(2, DispatchThreadID.x + 1)), N); // exponent of twiddle factor, (y*N/2^stage)%N , also number of butterfly groups per stage
+
+    float2 twiddle_factor = float2(cos(2.0 * M_PI *float(k) / float(N)), -sin(2.0 * M_PI *float(k) / float(N)));
+
+    int butterflySpan = int(pow(2, DispatchThreadID.x)); // number of pairings per stage, for x=1->N //CHEC K
+
+    int butterflyBranch; 
+
+
+    if (fmod(DispatchThreadID.y, float(pow(2, DispatchThreadID.x + 1))) < pow(2, DispatchThreadID.x)) // finds top branch by doing y % width < width/2
+    {
+        butterflyBranch = 1; //top
+    }
+    else
+    {
+        butterflyBranch = 0;
+    }
+
+    if (DispatchThreadID.x == 0)
+    {
+
+        if (butterflyBranch == 1)
+        {
+            Result[DispatchThreadID.xy]=float4(twiddle_factor.x, twiddle_factor.y, bitReversedIndicies[DispatchThreadID.y], bitReversedIndicies[DispatchThreadID.y + 1]);
+        }
+        else
+        {
+            Result[DispatchThreadID.xy]=float4(twiddle_factor.x, twiddle_factor.y, bitReversedIndicies[DispatchThreadID.y - 1], bitReversedIndicies[DispatchThreadID.y]);
+        }
+    }
+    else
+    {
+        
+        
+        if (butterflyBranch == 1)
+        {
+            Result[DispatchThreadID.xy]=float4(twiddle_factor.x,twiddle_factor.y, DispatchThreadID.y, DispatchThreadID.y + butterflySpan);
+        }
+        else
+        {
+            Result[DispatchThreadID.xy]=float4(twiddle_factor.x, twiddle_factor.y, DispatchThreadID.y - butterflySpan, DispatchThreadID.y );
+        }
+    }
+
+
+}
+
+
+
+
+

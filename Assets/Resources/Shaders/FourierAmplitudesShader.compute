@@ -1,0 +1,165 @@
+#pragma kernel main
+#define M_PI 3.1415926535897932384626433832795
+
+RWTexture2D<float4> tilde_h0k : register(u0);
+RWTexture2D<float4> tilde_h0minusk : register(u1);
+
+RWTexture2D<float4> Displacement : register(u2);
+RWTexture2D<float> Jacobian : register(u3);
+
+
+
+Texture2D<float4> gauss_random_texture;
+
+
+
+cbuffer Constants : register(b0)
+{
+    int N;
+    int L;
+    float time;
+    float A;
+    float2 windDirection;
+    float windspeed;
+ 
+}
+
+
+float2 complex_multiply(float2 z0, float2 z1)
+{
+    float2 z;
+    z.x = z0.x * z1.x - z0.y *z1.y;
+    z.y = z0.x * z1.y + z0.y *z1.x;
+
+    return z;
+}
+
+float2 complex_add(float2 z0, float2 z1)
+{
+    float2 z;
+    z.x = z0.x +z1.x;
+    z.y = z0.y + z1.y;
+    return z;
+}
+
+float2 complex_conjugate(float2 z)
+{
+    float2 z_conj;
+    z_conj.x = z.x;
+    z_conj.y = -z.y;
+    return z_conj;
+}
+
+
+static const float g = 9.81;
+
+
+
+[numthreads(16, 16, 1)]
+void main(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+    float2 x = (float2) (uint2) (DispatchThreadID.xy) - float(N) / 2.0;
+
+    // wavevec
+    float2 k = float2(2.0 * M_PI * x.x / L, 2.0 * M_PI * x.y / L);
+
+    float L_w = (windspeed * windspeed) / g;
+
+    float small_wave_damping = 2000.0;
+
+
+    float k_mag = length(k);
+    if (k_mag < 0.00001)
+    k_mag = 0.00001;
+
+
+    float k_magSq = k_mag * k_mag;
+
+
+    float phillips_spectrum = (A / (k_magSq * k_magSq)) * pow(dot(normalize(k), normalize(windDirection)), 8.0) * exp(-1.0 / (k_magSq * L_w * L_w));
+
+    float phillips_spectrum_suprressing_small_waves = phillips_spectrum * exp(-k_magSq * pow(L/small_wave_damping, 2.0));
+
+    float h0k = clamp(sqrt(phillips_spectrum_suprressing_small_waves)/sqrt(2.0), -4000.0, 4000.0);
+
+    
+
+    // sqrt(Ph(k)/2) * sqrt(2)
+    //float h0k = clamp(sqrt((A / (k_magSq * k_magSq)) * pow(dot(normalize(k), normalize(windDirection)), 6.0) * exp(-1.0 / (k_magSq * L_w * L_w)) * exp(-k_magSq * pow(L / 2000.0, 2.0))) / sqrt(2.0), -4000, 4000);
+
+    // sqrt(Ph(-k)/2) * sqrt(2)
+
+    float phillips_spectrum_minus_k = (A / (k_magSq * k_magSq)) * pow(dot(normalize(-k), normalize(windDirection)), 8.0) * exp(-1.0 / (k_magSq * L_w * L_w));
+
+    float phillips_spectrum_suprressing_small_waves_minus_k = phillips_spectrum_minus_k * exp(-k_magSq * pow(L/small_wave_damping, 2.0));
+
+
+    float h0minusk = clamp(sqrt(phillips_spectrum_suprressing_small_waves_minus_k) / sqrt(2.0), -4000.0, 4000.0);
+
+   
+
+
+    
+    tilde_h0k[DispatchThreadID.xy]= float4(h0k * gauss_random_texture[DispatchThreadID.xy].x, h0k * gauss_random_texture[DispatchThreadID.xy].y, 0.0, 0.0);
+
+   // check the minus
+    tilde_h0minusk[DispatchThreadID.xy]= float4(h0minusk * gauss_random_texture[DispatchThreadID.xy].z, h0minusk * gauss_random_texture[DispatchThreadID.xy].w, 0.0, 0.0);
+
+
+    float omega_sq = 9.81  * k_mag;
+
+    float scale = 0.01f; ///very small waves of 1cm have extra term, scale is scale for surface tension to have effect
+
+    if (k_mag < scale)
+    {
+        omega_sq *= (1.0f + k_mag * k_mag * scale * scale);
+    }
+
+
+
+
+    float base_frequency = (2.0f * M_PI) / 10.0; //10seconds period
+
+    float quantized_dispersion_frequency = floor(omega_sq/ base_frequency) * base_frequency;
+
+    float exponent = quantized_dispersion_frequency * time;
+
+    float Lambda = 2.0;
+
+    float2 exp_iwt = float2(cos(exponent), sin(exponent)); 
+    float2 exp_iwt_conj = float2(cos(exponent), -sin(exponent)); 
+    
+    //combines the two tilde textures into fourier amplitudes w/ time dependence based on quantized dispersion
+    float4 fourier_amplitudes = float4(complex_add(complex_multiply(tilde_h0k[DispatchThreadID.xy].rg, exp_iwt), complex_multiply(complex_conjugate(tilde_h0minusk[DispatchThreadID.xy].rg), exp_iwt_conj)), 0.0, 0.0);
+
+
+
+    float2 i_times_fourier_amplitudes = float2(-fourier_amplitudes.y, fourier_amplitudes.x);
+
+
+    float2 displacementX = i_times_fourier_amplitudes * k.x * 1/k_mag;
+	float2 displacementY = fourier_amplitudes.xy;
+	float2 displacementZ = i_times_fourier_amplitudes * k.x * 1/k_mag;
+		 
+	float2 displacementX_dx = -fourier_amplitudes.xy * k.x * k.x * 1/k_mag;
+	float2 displacementY_dx = i_times_fourier_amplitudes * k.x;
+	float2 displacementZ_dx = -fourier_amplitudes.xy * k.x * k.y * 1/k_mag;
+		 
+	float2 displacementY_dz = i_times_fourier_amplitudes * k.y;
+	float2 displacementZ_dz = -fourier_amplitudes.xy * k.y * k.y * 1/k_mag;
+	
+	float2 Dx_Dz = float2(displacementX.x - displacementZ.y, displacementX.y + displacementZ.x);
+	float2 Dy_Dxz = float2(displacementY.x - displacementZ_dx.y, displacementY.y + displacementZ_dx.x);
+	float2 Dyx_Dyz= float2(displacementY_dx.x - displacementY_dz.y, displacementY_dx.y + displacementY_dz.x);
+	float2 Dxx_Dzz = float2(displacementX_dx.x - displacementZ_dz.y, displacementX_dx.y + displacementZ_dz.x);
+
+    Displacement[DispatchThreadID.xy] = float4(Lambda * Dx_Dz.x, Dy_Dxz.x, Lambda * Dx_Dz.y,0.0);
+	Jacobian[DispatchThreadID.xy] = (1 + Lambda * Dxx_Dzz.x) * (1 + Lambda * Dxx_Dzz.y) - Lambda * Lambda * Dy_Dxz.y * Dy_Dxz.y;
+    
+
+
+
+
+    
+
+}
