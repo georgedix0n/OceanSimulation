@@ -11,14 +11,6 @@ This project is a GPU-based ocean surface simulation that leverages Jerry Tessen
   -  Each texture is then fft'd/permuted on the gpu with `fft.compute`/`permute.compute`, to give the associated height map and normals etc. for the surface shader.
   -  The distributions and ffts are then run on the GPU per frame to generate the changing height maps, automatically applying to the plane mesh via the material surface shader.
 
-## Setup & Installation
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/georgedix0n/SurfaceTest.git   
-2. Open project with Unity Editor
-3. Alter values on `OceanGenerator.cs`
-4. Hit Play
-
 ## Improvements
 - The surface shader is incomplete, so the ocean surface colouring does not look realistic, though the wave shapes/ generated textures etc. are realistic.
 - Intending to add foam.
