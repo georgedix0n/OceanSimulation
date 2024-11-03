@@ -9,6 +9,7 @@ This project is a GPU-based ocean surface simulation that leverages Jerry Tessen
   -  Using the GPU with `Resources/Shaders/ButterflyShader.compute` on play the twiddle factors for the fft are stored in a 2D texture.
   -  Also on the GPU on play, using the phillips spectrum and a box-muller random texture generator, fourier amplitudes, derivatives and a Jacobian texture are generated with `FourierAmplitudesShader.compute`.
   -  Each texture is then fft'd/permuted on the gpu with `fft.compute`/`permute.compute`, to give the associated height map and normals etc. for the surface shader.
+  -  The distributions and ffts are then run on the GPU per frame to generate the changing height maps, automatically applying to the plane mesh via the material surface shader.
 
 ## Setup & Installation
 1. Clone this repository:
